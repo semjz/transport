@@ -1,0 +1,67 @@
+[
+ {
+  "desk_access": 1,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Role",
+  "home_page": null,
+  "is_custom": 0,
+  "modified": "2025-10-29 16:04:13.582413",
+  "name": "Driver",
+  "restrict_to_domain": null,
+  "role_name": "Driver",
+  "two_factor_auth": 0
+ },
+ {
+  "desk_access": 1,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Role",
+  "home_page": null,
+  "is_custom": 0,
+  "modified": "2025-10-29 16:06:41.951034",
+  "name": "CRM",
+  "restrict_to_domain": null,
+  "role_name": "CRM",
+  "two_factor_auth": 0
+ },
+ {
+  "desk_access": 1,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Role",
+  "home_page": null,
+  "is_custom": 0,
+  "modified": "2025-10-29 16:06:54.409870",
+  "name": "Finance",
+  "restrict_to_domain": null,
+  "role_name": "Finance",
+  "two_factor_auth": 0
+ },
+ {
+  "desk_access": 1,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Role",
+  "home_page": null,
+  "is_custom": 0,
+  "modified": "2025-10-29 16:07:13.791318",
+  "name": "Ops Manager",
+  "restrict_to_domain": null,
+  "role_name": "Ops Manager",
+  "two_factor_auth": 0
+ },
+ {
+  "desk_access": 1,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Role",
+  "home_page": null,
+  "is_custom": 0,
+  "modified": "2025-10-29 16:07:25.020209",
+  "name": "Limited Admin",
+  "restrict_to_domain": null,
+  "role_name": "Limited Admin",
+  "two_factor_auth": 0
+ }
+]

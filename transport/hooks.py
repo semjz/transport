@@ -5,6 +5,33 @@ app_description = "Waste Transport"
 app_email = "saman.malakjan@gmail.com"
 app_license = "mit"
 
+# This app depends on ERPNEXT
+required_apps = ["erpnext"]
+
+fixtures = [
+    # Ship just the roles you added
+    {"dt": "Role", "filters": [["name", "in", [
+        "Driver", "CRM", "Finance", "Ops Manager", "Limited Admin"
+    ]]]},
+
+    # Ship custom permissions you set via Role Permission Manager
+    # (these are stored as Custom DocPerm records)
+    {"dt": "Custom DocPerm", "filters": [["parent", "in", [
+        "Address", "Customer", "Contact", "Sales Order", "Sales Invoice"
+    ]]]},
+
+    # If you also tweaked properties (e.g., permlevel on fields), include Property Setter:
+    # {"dt": "Property Setter", "filters": [["doc_type", "in", [
+    #     "Address", "Customer", "Contact", "Sales Order", "Sales Invoice"
+    # ]]]},
+]
+
+
+#doc_events = {
+#    "Field Service Log": {
+#        "after_insert": "transport.integrations.invoicing.fsl_to_invoice"
+#    }
+#}
 # Apps
 # ------------------
 
