@@ -1,0 +1,48 @@
+{% extends "templates/web.html" %}
+
+{% block page_content %}
+
+<script>
+  window.csrf_token = "{{ csrf_token }}";
+</script>
+
+<h2>FSL Field</h2>
+
+<p><b>QR Token:</b> <span id="tokenStatus">Reading…</span></p>
+
+<hr/>
+
+<h3>Driver</h3>
+<input id="driverCanonical" placeholder="Driver Canonical ID" autocomplete="off" />
+
+<hr/>
+
+<h3>Service Data</h3>
+
+<label>Qty / Weight</label><br/>
+<input id="qtyOrWeight" type="number" step="0.01" placeholder="Qty or Weight" /><br/><br/>
+
+<label>Photo</label><br/>
+<input id="photoInput" type="file" accept="image/*" capture="environment" /><br/>
+<small id="photoStatus">No photo selected</small>
+
+<hr/>
+
+<h3>Device Info</h3>
+<p><b>Timestamp:</b> <span id="timeStatus">Not set</span></p>
+
+<hr/>
+
+<div style="margin-top:12px;">
+  <button id="btnSave" type="button">Save Draft</button>
+  <button id="btnSync" type="button">Sync Pending</button>
+</div>
+
+<p id="status"></p>
+<p><b>Pending:</b> <span id="pendingCount">0</span></p>
+
+<script src="/field/fsl/register-sw.js"></script>
+<script src="/field/fsl/fsl.js"></script>
+
+
+{% endblock %}

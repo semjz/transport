@@ -5,75 +5,118 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "section_break_lpdi"
+  "trip_id",
+  "customer",
+  "site",
+  "address",
+  "site_uuid",
+  "qty_or_weight",
+  "photo",
+  "trip_date",
+  "gps_lat",
+  "gps_lng",
+  "driver",
+  "client_request_id",
+  "status",
+  "qr_token"
  ],
  "fields": [
-    {
-	"fieldname":"customer",
-	"label":"Customer",
-	"fieldtype":"Link",
-	"options":"Customer",
-	"reqd":1
-    },
-    {
-	"fieldname":"site",
-	"label":"Site",
-	"fieldtype":"Link",
-	"options":"Customer Site",
-	"reqd":1
-    },
-    {
-	"fieldname":"address",
-	"label":"Address",
-	"fieldtype":"Link",
-	"options":"Address",
-	"reqd":1,
-	"read_only":1
-    },
-    {
-	"fieldname":"site_uuid",
-	"label":"Site UUID",
-	"fieldtype":"Data",
-	"read_only":1
-    },
-    {
-	"fieldname":"service_item",
-	"label":"Service Item",
-	"fieldtype":"Link",
-	"options":"Item",
-	"reqd":1
-    },
-    {
-	"fieldname":"qty_or_weight",
-	"label":"Qty/Weight",
-	"fieldtype":"Float"
-    },
-    {
-	"fieldname":"photo",
-	"label":"Photo",
-	"fieldtype":"Attach Image"
-    },
-    {
-	"fieldname":"timestamp",
-	"label":"Timestamp",
-	"fieldtype":"Datetime",
-	"default":"Now"
-    },
-    {
-	"fieldname":"gps_lat",
-	"label":"GPS Lat",
-	"fieldtype":"Float"
-    },
-    {
-	"fieldname":"gps_lng",
-	"label":"GPS Lng",
-	"fieldtype":"Float"
-    }
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "site",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Site",
+   "options": "Customer Site"
+  },
+  {
+   "fieldname": "address",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Address",
+   "options": "Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "site_uuid",
+   "fieldtype": "Data",
+   "label": "Site UUID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "qty_or_weight",
+   "fieldtype": "Float",
+   "label": "Qty/Weight"
+  },
+  {
+   "fieldname": "photo",
+   "fieldtype": "Attach Image",
+   "label": "Photo"
+  },
+  {
+   "fieldname": "gps_lat",
+   "fieldtype": "Float",
+   "label": "GPS Lat"
+  },
+  {
+   "fieldname": "gps_lng",
+   "fieldtype": "Float",
+   "label": "GPS Lng"
+  },
+  {
+   "fieldname": "driver",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Driver",
+   "options": "Driver",
+   "reqd": 1
+  },
+  {
+   "fieldname": "client_request_id",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Client Request Id",
+   "unique": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nFinal"
+  },
+  {
+   "fieldname": "qr_token",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Qr Token"
+  },
+  {
+   "fieldname": "trip_id",
+   "fieldtype": "Data",
+   "label": "Trip Id",
+   "no_copy": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "Now",
+   "fieldname": "trip_date",
+   "fieldtype": "Date",
+   "label": "Trip Date",
+   "set_only_once": 1
+  }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-10-29 16:32:35.450643",
+ "modified": "2025-12-20 16:22:08.177955",
  "modified_by": "Administrator",
  "module": "Transport",
  "name": "Field Service Log",
@@ -92,31 +135,32 @@
    "write": 1
   },
   {
-   "role":"Driver",
-   "read":1,
-   "create":1,
-   "write":1,
-   "if_owner":1
+   "create": 1,
+   "if_owner": 1,
+   "read": 1,
+   "role": "Driver",
+   "write": 1
   },
   {
-   "role":"Ops Manager",
-   "read":1
+   "read": 1,
+   "role": "Ops Manager"
   },
   {
-   "role":"Finance",
-   "read":1
+   "read": 1,
+   "role": "Finance"
   },
   {
-   "role":"CRM",
-   "read":1
+   "read": 1,
+   "role": "CRM"
   },
   {
-   "role":"Limited Admin",
-   "read":1
+   "read": 1,
+   "role": "Limited Admin"
   }
  ],
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }

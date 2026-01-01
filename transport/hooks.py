@@ -6,25 +6,37 @@ app_email = "saman.malakjan@gmail.com"
 app_license = "mit"
 
 # This app depends on ERPNEXT
-required_apps = ["erpnext"]
+required_apps = ["erpnext", "foundation"]
 
 fixtures = [
-    # Ship just the roles you added
+    # Transport roles (domain-specific)
     {"dt": "Role", "filters": [["name", "in", [
-        "Driver", "CRM", "Finance", "Ops Manager", "Limited Admin"
+        "Driver"
     ]]]},
 
-    # Ship custom permissions you set via Role Permission Manager
-    # (these are stored as Custom DocPerm records)
+    # Transport-side permissions on sales/ops doctypes
     {"dt": "Custom DocPerm", "filters": [["parent", "in", [
-        "Address", "Customer", "Contact", "Sales Order", "Sales Invoice"
+        "Driver"
     ]]]},
 
-    # If you also tweaked properties (e.g., permlevel on fields), include Property Setter:
-    # {"dt": "Property Setter", "filters": [["doc_type", "in", [
-    #     "Address", "Customer", "Contact", "Sales Order", "Sales Invoice"
-    # ]]]},
+    # Transport-side property tweaks on those doctypes
+    {"dt": "Property Setter", "filters": [["doc_type", "in", [
+        "Driver"
+    ]]]},
 ]
+
+doc_events = {
+    "Driver": {
+        "before_insert": "transport.general_hooks.canonical_id.set_canonical_id"
+    }
+}
+
+# csrf_exempt = [
+#     r"^/api/method/transport\.api\.fsl\.create_draft_fsl$",
+#     r"^/api/method/transport\.api\.field_auth\.exchange_qr_for_field_token$",
+# ]
+
+
 
 
 #doc_events = {
