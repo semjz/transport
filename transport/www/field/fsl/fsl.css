@@ -1,0 +1,138 @@
+/* Layout wrapper: center the card and use a clean system font */
+.fsl-page {
+  max-width: 480px;
+  margin: 1.5rem auto;
+  padding: 0 1rem;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+/* Main container card */
+.fsl-card {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  padding: 1.25rem 1.5rem;
+}
+
+/* Header section */
+.fsl-header {
+  margin-bottom: 1rem;
+}
+
+.fsl-header h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.fsl-header small {
+  color: #666;
+  display: block;
+  margin-top: 0.25rem;
+}
+
+/* Section titles like "Service Data", "Device Info" */
+.fsl-section-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 1rem 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #555;
+}
+
+/* Generic vertical spacing between form rows */
+.fsl-row {
+  margin-bottom: 0.75rem;
+}
+
+/* Labels for inputs */
+.fsl-label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 0.15rem;
+  color: #444;
+}
+
+/* Text/number input styling */
+.fsl-input,
+.fsl-file {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 0.95rem;
+}
+
+/* Focus state for better UX on mobile & desktop */
+.fsl-input:focus,
+.fsl-file:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+/* Meta info text like QR, driver, timestamp */
+.fsl-meta {
+  font-size: 0.8rem;
+  color: #555;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.fsl-meta b {
+  font-weight: 600;
+}
+
+/* Button row */
+.fsl-actions {
+  margin-top: 1.25rem;
+  display: flex;
+  gap: 0.75rem;
+}
+
+/* Base button style */
+.fsl-btn {
+  flex: 1;
+  padding: 0.6rem 0.75rem;
+  border-radius: 999px;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Primary action button */
+.fsl-btn-primary {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.fsl-btn-primary:active {
+  opacity: 0.9;
+  transform: translateY(1px);
+}
+
+/* Status line */
+.fsl-status {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  min-height: 1.2em;
+}
+
+.fsl-status b {
+  font-weight: 600;
+}
+
+.fsl-status-text {
+  color: #111827;
+}
+
+/* Small helper text */
+.fsl-subtle {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 0.35rem;
+}

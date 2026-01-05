@@ -27,7 +27,11 @@ fixtures = [
 
 doc_events = {
     "Driver": {
-        "before_insert": "transport.general_hooks.canonical_id.set_canonical_id"
+        "before_insert" : "transport.general_hooks.canonical_id.set_canonical_id",
+        "after_insert": [
+            "transport.driver_hooks.create_user.create_user_for_driver",
+            "transport.driver_hooks.create_employee.create_employee_for_driver"
+        ]
     }
 }
 

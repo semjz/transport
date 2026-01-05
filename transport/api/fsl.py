@@ -12,7 +12,6 @@ ALLOWED_FIELDS = {
     "qty_or_weight",
     "timestamp",
     "photo_data_url",
-
     "service_type",
     "waste_type",
     "weight_kg",
@@ -22,7 +21,14 @@ ALLOWED_FIELDS = {
     "performed_at",
 }
 
+
+# ------------------------------
+# Helpers
+# ------------------------------
+
+
 def _parse_payload(payload_json: str) -> dict:
+    """Parse JSON payload and keep only whitelisted fields."""
     data = json.loads(payload_json or "{}")
     if not isinstance(data, dict):
         return {}
@@ -33,6 +39,7 @@ def _parse_payload(payload_json: str) -> dict:
     if ts:
         try:
             dt = get_datetime(ts)
+            # strip timezone info; store naive server time
             if getattr(dt, "tzinfo", None):
                 dt = dt.replace(tzinfo=None)
             out["timestamp"] = dt
@@ -43,6 +50,7 @@ def _parse_payload(payload_json: str) -> dict:
 
 
 def _make_trip_id(customer: str, driver_canonical_id: str, trip_date: str) -> str:
+    """Deterministic per (customer, driver, day) id."""
     raw = f"{customer}|{driver_canonical_id}|{trip_date}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:32]
 
@@ -64,6 +72,7 @@ def _rate_limit(key: str, limit: int = 10, window_sec: int = 60):
     try:
         cache.expire(cache_key, window_sec)
     except Exception:
+        # not critical
         pass
 
     if n > limit:
@@ -72,18 +81,48 @@ def _rate_limit(key: str, limit: int = 10, window_sec: int = 60):
 
 
 def _assert_same_driver(doc, driver_canonical_id: str):
-    current = frappe.db.get_value(
-        "Driver",
-        doc.driver,  # this is the Driver.name (string)
-        "custom_driver_canonical_id"
-    ) or ""
-
-    if current.strip() != (driver_canonical_id or "").strip():
-        raise frappe.PermissionError("Not owner")
-
-def _create_draft(trip_id: str, customer: str, driver_canonical_id: str, payload_json: str):
     """
-    Create sets customer ONCE. No qr_token stored.
+    Ensure the FSL belongs to the same driver (by canonical id / name).
+
+    Convention:
+    - Driver.name == Driver.custom_driver_canonical_id
+    - FSL.driver stores that same canonical id.
+    """
+    current = (doc.driver or "").strip()
+    expected = (driver_canonical_id or "").strip()
+
+    if not current:
+        frappe.throw("FSL has no driver set")
+
+    if current != expected:
+        # Log for server-side debugging
+        frappe.log_error(
+            f"FSL driver mismatch: doc.driver={current}, token_driver={expected}",
+            "FSL Driver Mismatch",
+        )
+        # IMPORTANT: use frappe.throw (HTTP 417), not PermissionError (403)
+        frappe.throw(
+            f"Driver mismatch for FSL {doc.name}: doc.driver={current}, token_driver={expected}"
+        )
+
+
+# ------------------------------
+# Create / update draft
+# ------------------------------
+
+
+def _create_draft(
+    trip_id: str,
+    customer: str,
+    driver_canonical_id: str,
+    payload_json: str,
+):
+    """
+    Create draft FSL.
+
+    - Sets customer and driver ONCE.
+    - driver is stored as canonical id (which is also Driver.name).
+    - qr_token is not stored.
     """
     payload = _parse_payload(payload_json)
 
@@ -96,7 +135,6 @@ def _create_draft(trip_id: str, customer: str, driver_canonical_id: str, payload
         **payload,
     }
 
-    # optional field: trip_date
     meta = frappe.get_meta(FSL_DOCTYPE)
     if meta.get_field("trip_date"):
         doc_dict["trip_date"] = nowdate()
@@ -107,10 +145,17 @@ def _create_draft(trip_id: str, customer: str, driver_canonical_id: str, payload
     return doc
 
 
-def _update_draft(existing_name: str, driver_canonical_id: str, payload_json: str):
+def _update_draft(
+    existing_name: str,
+    driver_canonical_id: str,
+    payload_json: str,
+):
     """
-    Update does NOT accept/modify customer.
-    Only updates allowed payload fields, and enforces same-driver + Draft status.
+    Update an existing draft FSL.
+
+    - Does NOT change customer or driver.
+    - Only updates payload fields.
+    - Enforces same-driver and Draft status.
     """
     doc = frappe.get_doc(FSL_DOCTYPE, existing_name)
 
@@ -130,19 +175,31 @@ def _update_draft(existing_name: str, driver_canonical_id: str, payload_json: st
     return doc
 
 
+# ------------------------------
+# Public API
+# ------------------------------
+
+
 @frappe.whitelist(allow_guest=True)
 def upsert_draft_fsl(qr_token: str, driver_canonical_id: str, payload_json: str = "{}"):
     """
+    Upsert a draft FSL for (customer, driver, day).
+
+    - qr_token: signed token bound to a Customer (via verify_customer_token)
+    - driver_canonical_id: canonical id of Driver (also its name)
+    - payload_json: JSON with allowed fields
+
     Server computes trip_id from (customer + driver + day).
     If trip exists -> update; else -> create.
-    qr_token is only used for verification (NOT stored).
+    qr_token is only used for verification and is NOT stored.
     """
+    
     if not qr_token:
         frappe.throw("qr_token required")
     if not driver_canonical_id:
         frappe.throw("driver_canonical_id required")
 
-    # Validate driver exists (optional but recommended)
+    # Validate driver exists (name == canonical id)
     if not get_driver_by_canonical_id(driver_canonical_id):
         frappe.throw("Driver with this ID doesn't exist!")
 
@@ -164,20 +221,43 @@ def upsert_draft_fsl(qr_token: str, driver_canonical_id: str, payload_json: str 
 
     existing = frappe.db.get_value(FSL_DOCTYPE, {"trip_id": trip_id}, "name")
     if existing:
-        # Optional extra hard check: existing doc must belong to same customer (should always be true)
-        # doc0 = frappe.get_doc(FSL_DOCTYPE, existing)
-        # if doc0.customer != customer:
-        #     frappe.throw("Trip mismatch")
+        doc = _update_draft(
+            existing_name=existing,
+            driver_canonical_id=driver_canonical_id,
+            payload_json=payload_json,
+        )
+        return {
+            "ok": True,
+            "mode": "edit",
+            "name": doc.name,
+            "trip_id": trip_id,
+            "trip_date": trip_date,
+        }
 
-        doc = _update_draft(existing_name=existing, driver_canonical_id=driver_canonical_id, payload_json=payload_json)
-        return {"ok": True, "mode": "edit", "name": doc.name, "trip_id": trip_id, "trip_date": trip_date}
-
-    doc = _create_draft(trip_id=trip_id, customer=customer, driver_canonical_id=driver_canonical_id, payload_json=payload_json)
-    return {"ok": True, "mode": "created", "name": doc.name, "trip_id": trip_id, "trip_date": trip_date}
+    doc = _create_draft(
+        trip_id=trip_id,
+        customer=customer,
+        driver_canonical_id=driver_canonical_id,
+        payload_json=payload_json,
+    )
+    return {
+        "ok": True,
+        "mode": "created",
+        "name": doc.name,
+        "trip_id": trip_id,
+        "trip_date": trip_date,
+    }
 
 
 @frappe.whitelist(allow_guest=True)
 def finalize_fsl(fsl_name: str, driver_canonical_id: str):
+    """
+    Finalize a draft FSL.
+
+    - Caller provides fsl_name and driver_canonical_id.
+    - We verify the driver exists and that this FSL belongs to that driver.
+    """
+    # Validate driver exists (mainly for clearer errors)
     get_driver_by_canonical_id(driver_canonical_id)
 
     doc = frappe.get_doc(FSL_DOCTYPE, fsl_name)
@@ -194,3 +274,30 @@ def finalize_fsl(fsl_name: str, driver_canonical_id: str):
     frappe.db.commit()
 
     return {"ok": True, "name": doc.name, "status": doc.status}
+
+
+@frappe.whitelist()
+def get_driver_profile():
+    """
+    Return driver info for the logged-in user.
+
+    Used by the FSL frontend to resolve driver_canonical_id automatically.
+    """
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw("Not logged in")
+
+    driver = frappe.db.get_value(
+        "Driver",
+        {"custom_user_id": user},
+        ["name", "custom_driver_canonical_id"],
+        as_dict=True,
+    )
+
+    if not driver:
+        frappe.throw("No Driver linked to this user")
+
+    if not driver.custom_driver_canonical_id:
+        frappe.throw("Driver has no canonical_id")
+
+    return driver

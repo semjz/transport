@@ -15,7 +15,9 @@ def sign_customer_token(customer: str, exp: int) -> str:
     Creates a QR token. Use it when generating QR codes for customers.
     Output is base64url(JSON payload including signature).
     """
-    unsigned = {"v": 1, "customer": customer, "exp": int(exp)}
+
+    expires_at = int(time.time() + int(exp))
+    unsigned = {"v": 1, "customer": customer, "exp": int(expires_at)}
     raw = json.dumps(unsigned, separators=(",", ":"), sort_keys=True).encode()
 
     secret = frappe.conf.get("qr_hmac_secret")

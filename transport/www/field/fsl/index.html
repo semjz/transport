@@ -1,48 +1,99 @@
 {% extends "templates/web.html" %}
 
+{% block head %}
+  {{ super() }}
+  <link rel="stylesheet" href="/field/fsl/fsl.css">
+{% endblock %}
+
 {% block page_content %}
 
 <script>
+  // Make CSRF token available to fsl.js
   window.csrf_token = "{{ csrf_token }}";
 </script>
 
-<h2>FSL Field</h2>
+<div class="fsl-page">
+  <div class="fsl-card">
+    <div class="fsl-header">
+      <h2>Field Service Log</h2>
+      <small>Offline-capable driver form</small>
+    </div>
 
-<p><b>QR Token:</b> <span id="tokenStatus">Reading…</span></p>
+    <!-- QR info -->
+    <div class="fsl-row">
+      <div class="fsl-meta">
+        <span><b>QR Token:</b> <span id="tokenStatus">Reading…</span></span>
+      </div>
+    </div>
 
-<hr/>
+    <!-- Optional driver display (driverCanonicalId or a nicer label via JS) -->
+    <div class="fsl-row">
+      <div class="fsl-meta">
+        <span><b>Driver:</b> <span id="driverDisplay">Loading…</span></span>
+      </div>
+      <div class="fsl-subtle">
+        Driver ID is fetched from your logged-in user; there is no manual input.
+      </div>
+    </div>
 
-<h3>Driver</h3>
-<input id="driverCanonical" placeholder="Driver Canonical ID" autocomplete="off" />
+    <hr />
 
-<hr/>
+    <!-- Service data -->
+    <div class="fsl-section-title">Service Data</div>
 
-<h3>Service Data</h3>
+    <div class="fsl-row">
+      <label class="fsl-label" for="qtyOrWeight">Qty / Weight</label>
+      <input
+        id="qtyOrWeight"
+        class="fsl-input"
+        type="number"
+        step="0.01"
+        placeholder="Enter quantity or weight"
+      />
+    </div>
 
-<label>Qty / Weight</label><br/>
-<input id="qtyOrWeight" type="number" step="0.01" placeholder="Qty or Weight" /><br/><br/>
+    <div class="fsl-row">
+      <label class="fsl-label" for="photoInput">Photo</label>
+      <input
+        id="photoInput"
+        class="fsl-file"
+        type="file"
+        accept="image/*"
+        capture="environment"
+      />
+      <small id="photoStatus" class="fsl-subtle">No photo selected</small>
+    </div>
 
-<label>Photo</label><br/>
-<input id="photoInput" type="file" accept="image/*" capture="environment" /><br/>
-<small id="photoStatus">No photo selected</small>
+    <hr />
 
-<hr/>
+    <!-- Device info -->
+    <div class="fsl-section-title">Device Info</div>
+    <div class="fsl-row">
+      <div class="fsl-meta">
+        <span><b>Timestamp:</b> <span id="timeStatus">Not set</span></span>
+      </div>
+    </div>
 
-<h3>Device Info</h3>
-<p><b>Timestamp:</b> <span id="timeStatus">Not set</span></p>
+    <!-- Actions -->
+    <div class="fsl-actions">
+      <button id="btnSave" type="button" class="fsl-btn fsl-btn-primary">
+        Save Draft
+      </button>
+    </div>
 
-<hr/>
+    <!-- Status -->
+    <div class="fsl-status">
+      <b>Status:</b> <span id="status" class="fsl-status-text"></span>
+    </div>
 
-<div style="margin-top:12px;">
-  <button id="btnSave" type="button">Save Draft</button>
-  <button id="btnSync" type="button">Sync Pending</button>
+    <div class="fsl-subtle">
+      Submissions are saved offline if network is unavailable and will be
+      re-sent automatically when you are online again.
+    </div>
+  </div>
 </div>
-
-<p id="status"></p>
-<p><b>Pending:</b> <span id="pendingCount">0</span></p>
 
 <script src="/field/fsl/register-sw.js"></script>
 <script src="/field/fsl/fsl.js"></script>
-
 
 {% endblock %}
