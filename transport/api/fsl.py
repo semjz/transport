@@ -3,6 +3,7 @@ import hashlib
 import frappe
 from frappe.utils import get_datetime, nowdate
 
+
 from transport.field_auth.qr import verify_customer_token
 from transport.field_auth.driver import get_driver_by_canonical_id
 
@@ -10,15 +11,18 @@ FSL_DOCTYPE = "Field Service Log"
 
 ALLOWED_FIELDS = {
     "qty_or_weight",
-    "timestamp",
-    "photo_data_url",
-    "service_type",
-    "waste_type",
-    "weight_kg",
+    "photo",
     "gps_lat",
     "gps_lng",
     "notes",
     "performed_at",
+    "package_count",
+    "is_waste_safe",
+    "safety_issue_reason",
+    "safety_issue_photo",
+    "is_safety_critical",
+    "is_safety_resolved",
+    "is_waste_collected"
 }
 
 
@@ -35,16 +39,16 @@ def _parse_payload(payload_json: str) -> dict:
 
     out = {k: v for k, v in data.items() if k in ALLOWED_FIELDS}
 
-    ts = out.get("timestamp")
+    ts = out.get("performed_at")
     if ts:
         try:
             dt = get_datetime(ts)
             # strip timezone info; store naive server time
             if getattr(dt, "tzinfo", None):
                 dt = dt.replace(tzinfo=None)
-            out["timestamp"] = dt
+            out["performed_at"] = dt
         except Exception:
-            frappe.throw("Invalid timestamp format")
+            frappe.throw("Invalid datetime format")
 
     return out
 
@@ -301,3 +305,85 @@ def get_driver_profile():
         frappe.throw("Driver has no canonical_id")
 
     return driver
+
+@frappe.whitelist()
+def log_client_error(context=None, message=None, extra=None, url=None, user_agent=None):
+    """Receive client-side error logs from FSL page and store them in Error Log."""
+    try:
+        frappe.log_error(
+            title="FSL Client Error",
+            message=frappe.as_json(
+                {
+                    "context": context,
+                    "message": message,
+                    "extra": extra,
+                    "url": url,
+                    "user_agent": user_agent,
+                    "user": frappe.session.user,
+                }
+            ),
+        )
+    except Exception:
+        # We never want logging itself to crash the main flow
+        pass
+
+    return {"ok": True}
+
+
+import frappe
+from frappe.sessions import get_csrf_token
+
+
+@frappe.whitelist()
+def get_csrf_for_fsl():
+    """
+    Return a fresh CSRF token for the current session.
+    Intended to be called from the service worker with credentials=include.
+    """
+    # If user is not logged in, explicitly return 403
+    if frappe.session.user == "Guest":
+        frappe.local.response["http_status_code"] = 403
+        frappe.throw("Not logged in")
+
+    token = get_csrf_token()
+    return {"csrf_token": token}
+
+@frappe.whitelist()
+def log_sync_result():
+    """
+    Called by the FSL service worker after each flushQueue().
+    Expects JSON body like:
+    {
+      "queued_before": 10,
+      "queued_after": 3,
+      "processed": 7,
+      "succeeded": 6,
+      "failed": 1,
+      "dropped": 0,
+      "timestamp": 1736520000000
+    }
+    """
+    data = frappe.request.get_json() or {}
+
+    # You can either:
+    # 1) Insert a DocType "FSL Sync Log"
+    # 2) Append to Error Log
+    # 3) Just log to file / console
+    #
+    # Example: simple DocType-based logging (recommended)
+
+    doc = frappe.get_doc({
+        "doctype": "FSL Sync Log",  # you create this DocType
+        "queued_before": data.get("queued_before"),
+        "queued_after": data.get("queued_after"),
+        "processed": data.get("processed"),
+        "succeeded": data.get("succeeded"),
+        "failed": data.get("failed"),
+        "dropped": data.get("dropped"),
+        "sync_time": get_datetime(),
+        "raw_payload": frappe.as_json(data, indent=None),
+    })
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {"status": "ok"}

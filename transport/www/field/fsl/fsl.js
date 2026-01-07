@@ -1,5 +1,7 @@
 // /field/fsl/fsl.js
 
+
+
 // ---------------------------------------------------------------------------
 // CONSTANTS
 // ---------------------------------------------------------------------------
@@ -38,8 +40,13 @@ function getCsrf() {
 async function logClientError(context, error, extra = {}) {
   console.error("[FSL][ClientError]", context, error, extra);
 
+  const csrf = getCsrf();
+  if (!csrf) {
+    console.warn("[FSL] Missing CSRF token (logClientError); skipping log");
+    return; // don't send a POST without a token
+  }
+
   try {
-    const csrf = getCsrf();
     const payload = {
       context,
       message: String(error?.message || error),
@@ -53,7 +60,7 @@ async function logClientError(context, error, extra = {}) {
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...(csrf ? { "X-Frappe-CSRF-Token": csrf } : {}),
+        "X-Frappe-CSRF-Token": csrf,
       },
       body: JSON.stringify(payload),
     });
@@ -66,7 +73,8 @@ async function logClientError(context, error, extra = {}) {
 // FILE + PAYLOAD
 // ---------------------------------------------------------------------------
 
-let photoDataUrl = null;
+let photoDataUrl = null;           // main waste photo
+let safetyPhotoDataUrl = null;     // safety issue photo
 
 function fileToDataURL(file) {
   return new Promise((resolve, reject) => {
@@ -77,15 +85,76 @@ function fileToDataURL(file) {
   });
 }
 
+function initFileInput(inputId, statusId, onDataUrlChange, logContext) {
+  const input = $(inputId);
+  if (!input) return;
+
+  input.addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+
+    if (!file) {
+      onDataUrlChange(null);
+      const statusEl = $(statusId);
+      if (statusEl) statusEl.innerText = MSG.FILE_NONE;
+      return;
+    }
+
+    try {
+      const dataUrl = await fileToDataURL(file);
+      onDataUrlChange(dataUrl);
+      const statusEl = $(statusId);
+      if (statusEl) statusEl.innerText = MSG.FILE_SELECTED(file.name);
+    } catch (err) {
+      onDataUrlChange(null);
+      const statusEl = $(statusId);
+      if (statusEl) statusEl.innerText = MSG.FILE_READ_ERROR;
+      console.error("[FSL] fileToDataURL error:", err);
+      await logClientError(logContext, err);
+    }
+  });
+}
+
 function payloadFromForm() {
   const qtyInput = $("qtyOrWeight");
   const qty = qtyInput?.value ? Number(qtyInput.value) : null;
 
-  return {
+  const packageCountInput = $("packageCount");
+  const packageCount = packageCountInput?.value
+    ? Number(packageCountInput.value)
+    : null;
+
+  const isWasteSafe = $("isWasteSafe")?.checked || false;
+  const safetyIssueReason = $("safetyIssueReason")?.value || "";
+
+  const isSafetyCritical = $("isSafetyCritical")?.checked || false;
+  const isSafetyResolved = $("isSafetyResolved")?.checked || false;
+  const isWasteCollected = $("isWasteCollected")?.checked || false;
+
+  const performedAt = new Date().toISOString();
+
+  const payload = {
     qty_or_weight: qty,
-    timestamp: new Date().toISOString(),
+    package_count: packageCount,
+
+    // photos
     photo_data_url: photoDataUrl,
+
+    // safety + outcome
+    is_waste_safe: isWasteSafe,
+    is_waste_collected: isWasteCollected,
+
+    performed_at: performedAt,
   };
+
+  // Only add safety-issue details when waste is NOT safe
+  if (!isWasteSafe) {
+    payload.safety_issue_reason = safetyIssueReason;
+    payload.safety_issue_photo_data_url = safetyPhotoDataUrl;
+    payload.is_safety_critical = isSafetyCritical;
+    payload.is_safety_resolved = isSafetyResolved;
+  }
+
+  return payload;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,16 +209,21 @@ function redirectToLogin() {
 // ---------------------------------------------------------------------------
 
 async function fetchDriverProfileFromServer() {
-  const res = await fetch("/api/method/transport.api.fsl.get_driver_profile", {
-    method: "GET",
-    credentials: "include",
-  });
+  const res = await fetch(
+    "/api/method/transport.api.fsl.get_driver_profile",
+    {
+      method: "GET",
+      credentials: "include",
+    }
+  );
 
   let data = {};
   try {
     data = await res.json();
   } catch (e) {
-    await logClientError("driver_profile_json_parse", e, { status: res.status });
+    await logClientError("driver_profile_json_parse", e, {
+      status: res.status,
+    });
   }
 
   if (res.status === 403) {
@@ -159,7 +233,8 @@ async function fetchDriverProfileFromServer() {
   }
 
   if (!res.ok) {
-    const msg = data?.message || "Could not load driver profile";
+    const msg =
+      data?.message || "امکان دریافت پروفایل راننده وجود ندارد.";
     throw new Error(msg);
   }
 
@@ -168,7 +243,7 @@ async function fetchDriverProfileFromServer() {
     msg.custom_driver_canonical_id || msg.driver_canonical_id || "";
 
   if (!cid) {
-    throw new Error("Driver canonical_id missing in profile");
+    throw new Error(MSG.DRIVER_MISSING);
   }
 
   return cid;
@@ -181,33 +256,32 @@ async function fetchDriverProfileFromServer() {
 function initDriverOffline(cachedId) {
   if (cachedId) {
     driverCanonicalId = cachedId;
-    setDriverDisplay(`${driverCanonicalId} (cached)`);
-    setStatus(`Offline; using cached driver ${driverCanonicalId}`);
+    setDriverDisplay(`${driverCanonicalId} (ذخیره‌شده)`);
+    setStatus(MSG.OFFLINE_CACHED(driverCanonicalId));
   } else {
     driverCanonicalId = "";
-    setDriverDisplay("No cached driver ID");
-    setStatus(
-      "No cached driver ID and offline. Please log in once while online."
-    );
+    setDriverDisplay("شناسه راننده ذخیره نشده است.");
+    setStatus(MSG.OFFLINE_NO_CACHE);
   }
 }
 
 async function initDriverOnline(cachedId) {
-  setDriverDisplay("Loading…");
+  setDriverDisplay("در حال بارگذاری…");
+  setStatus(MSG.DRIVER_LOADING);
 
   try {
     const cid = await fetchDriverProfileFromServer();
     driverCanonicalId = cid;
     cacheDriverId(cid);
     setDriverDisplay(driverCanonicalId);
-    setStatus(`Driver loaded from server: ${driverCanonicalId}`);
+    setStatus(MSG.DRIVER_FROM_SERVER(driverCanonicalId));
   } catch (error) {
     // 🔹 1) Login-related error → redirect
     if (isNotLoggedInError(error)) {
       driverCanonicalId = "";
       clearCachedDriverId();
-      setDriverDisplay("Not logged in");
-      setStatus("Please log in again to access driver page.");
+      setDriverDisplay("وارد نشده‌اید");
+      setStatus(MSG.NOT_LOGGED_IN);
       await logClientError("driver_profile_not_logged_in", error);
 
       redirectToLogin();
@@ -220,14 +294,12 @@ async function initDriverOnline(cachedId) {
 
     if (cachedId) {
       driverCanonicalId = cachedId;
-      setDriverDisplay(`${driverCanonicalId} (cached)`);
-      setStatus(
-        `Failed to load driver from server; using cached ${driverCanonicalId}`
-      );
+      setDriverDisplay(`${driverCanonicalId} (ذخیره‌شده)`);
+      setStatus(MSG.DRIVER_FAILED_CACHE(driverCanonicalId));
     } else {
       driverCanonicalId = "";
-      setDriverDisplay("Could not load driver");
-      setStatus(error.message || "Failed to load driver profile.");
+      setDriverDisplay("امکان دریافت شناسه راننده نیست.");
+      setStatus(error.message || MSG.DRIVER_LOAD_FAILED);
     }
   }
 }
@@ -244,7 +316,7 @@ async function initDriverCanonicalId() {
 }
 
 // ---------------------------------------------------------------------------
-// SERVICE WORKER MESSAGES (no auth here)
+// SERVICE WORKER MESSAGES
 // ---------------------------------------------------------------------------
 
 function requestSwSyncQueue() {
@@ -261,15 +333,12 @@ function requestSwSyncQueue() {
     });
 }
 
+// CHANGED: no CSRF here anymore, just payload
 function sendToSwQueue(bodyObj) {
   if (!("serviceWorker" in navigator)) {
-    console.warn("[FSL] serviceWorker not supported; cannot queue offline");
-    return false;
-  }
-
-  const csrf = getCsrf();
-  if (!csrf) {
-    console.warn("[FSL] Missing CSRF token (sendToSwQueue)");
+    console.warn(
+      "[FSL] serviceWorker not supported; cannot queue offline"
+    );
     return false;
   }
 
@@ -278,11 +347,7 @@ function sendToSwQueue(bodyObj) {
       if (!reg.active) return;
       reg.active.postMessage({
         type: "QUEUE_FSL",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Frappe-CSRF-Token": csrf,
-        },
-        payload: bodyObj,
+        payload: bodyObj, // only payload, no headers/CSRF
       });
       console.log("[FSL] Sent QUEUE_FSL to SW");
     })
@@ -302,9 +367,13 @@ function handleSwMessage(event) {
   if (!data || !data.type) return;
 
   if (data.type === "FSL_QUEUE_FLUSHED") {
-    // SW finished flushing whatever it could.
-    // No new network calls here → no CSRF risk.
-    setStatus("Offline drafts synced to server (where possible).");
+    setStatus(MSG.OFFLINE_SYNCED);
+  }
+
+  // NEW: session expired while SW was trying to fetch CSRF
+  if (data.type === "FSL_SESSION_EXPIRED") {
+    // You can define MSG.SESSION_EXPIRED in fsl.messages.js
+    setStatus(MSG.SESSION_EXPIRED || "نشست شما منقضی شده است. لطفاً دوباره وارد شوید.");
   }
 }
 
@@ -317,13 +386,23 @@ function initSwMessageListener() {
 // SUBMIT FLOW
 // ---------------------------------------------------------------------------
 
-function buildFslBody(item) {
-  return {
+// ---------------------------------------------------------------------------
+// SUBMIT FLOW
+// ---------------------------------------------------------------------------
+
+const FSL_LOGIC = self.FslLogic || {
+  buildFslBody: (item) => ({
     qr_token: item.qr_token,
     driver_canonical_id: item.driver_canonical_id,
     payload_json: JSON.stringify(item.payload),
-  };
+  }),
+  validatePayload: () => [],
+};
+
+function buildFslBody(item) {
+  return FSL_LOGIC.buildFslBody(item);
 }
+
 
 async function submitFslOnline(bodyObj, csrf) {
   const res = await fetch(
@@ -343,11 +422,13 @@ async function submitFslOnline(bodyObj, csrf) {
   try {
     data = await res.json();
   } catch (e) {
-    await logClientError("fsl_submit_json_parse", e, { status: res.status });
+    await logClientError("fsl_submit_json_parse", e, {
+      status: res.status,
+    });
   }
 
   if (!res.ok) {
-    const msg = data?.message || "Server error while saving FSL.";
+    const msg = data?.message || "خطای سرور در ذخیره FSL.";
     throw new Error(msg);
   }
 
@@ -357,23 +438,23 @@ async function submitFslOnline(bodyObj, csrf) {
 function submitFslOffline(bodyObj) {
   const ok = sendToSwQueue(bodyObj);
   if (!ok) {
-    throw new Error("Could not queue request offline (SW not ready).");
+    throw new Error(MSG.OFFLINE_QUEUE_FAIL);
   }
   return { offline: true, queued: true };
 }
 
+// CHANGED: offline path does NOT require CSRF now;
+// CSRF only required for online submit.
 async function createDraftOnServer(item) {
-  const csrf = getCsrf();
-  if (!csrf) {
-    throw new Error(
-      "Missing CSRF token (createDraftOnServer). Please reload and log in again."
-    );
-  }
-
   const body = buildFslBody(item);
 
   if (!navigator.onLine) {
     return submitFslOffline(body);
+  }
+
+  const csrf = getCsrf();
+  if (!csrf) {
+    throw new Error(MSG.CSRF_MISSING);
   }
 
   try {
@@ -389,27 +470,40 @@ async function createDraftOnServer(item) {
 // BOOTSTRAP PAGE
 // ---------------------------------------------------------------------------
 
-function initPhotoInput() {
-  const input = $("photoInput");
-  if (!input) return;
+function initPhotoInputs() {
+  // main waste photo
+  initFileInput(
+    "photoInput",
+    "photoStatus",
+    (value) => {
+      photoDataUrl = value;
+    },
+    "photo_read_error"
+  );
 
-  input.addEventListener("change", async (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) {
-      photoDataUrl = null;
-      $("photoStatus").innerText = "No photo selected";
-      return;
-    }
-    try {
-      photoDataUrl = await fileToDataURL(file);
-      $("photoStatus").innerText = `Selected: ${file.name}`;
-    } catch (err) {
-      photoDataUrl = null;
-      $("photoStatus").innerText = "Failed to read photo";
-      console.error("[FSL] fileToDataURL error:", err);
-      await logClientError("photo_read_error", err);
-    }
-  });
+  // safety issue photo
+  initFileInput(
+    "safetyPhotoInput",
+    "safetyPhotoStatus",
+    (value) => {
+      safetyPhotoDataUrl = value;
+    },
+    "safety_photo_read_error"
+  );
+}
+
+function initSafetyToggle() {
+  const chk = $("isWasteSafe");
+  const section = $("safetySection");
+  if (!chk || !section) return;
+
+  function updateVisibility() {
+    // if safe → hide safety section; if not safe → show
+    section.style.display = chk.checked ? "none" : "block";
+  }
+
+  chk.addEventListener("change", updateVisibility);
+  updateVisibility();
 }
 
 function initSaveButton() {
@@ -417,28 +511,28 @@ function initSaveButton() {
   if (!btn) return;
 
   btn.addEventListener("click", async () => {
-    setStatus("Save clicked...");
+    setStatus(MSG.SAVE_CLICK);
 
     const token = getTokenFromHash();
     if (!token) {
-      setStatus("Missing QR token in URL (#t=...).");
+      setStatus(MSG.TOKEN_STATUS_MISSING);
       return;
     }
 
     if (!driverCanonicalId) {
-      setStatus(
-        "Driver canonical_id not available. Please log in online at least once."
-      );
+      setStatus(MSG.DRIVER_REQUIRED);
       return;
     }
 
     const payload = payloadFromForm();
-    if (payload.qty_or_weight == null) {
-      setStatus("qty_or_weight is required.");
+    const validationErrors = FSL_LOGIC.validatePayload(payload);
+
+    if (validationErrors.includes("qty_required")) {
+      setStatus(MSG.QTY_REQUIRED);
       return;
     }
-    if (!payload.photo_data_url) {
-      setStatus("Please attach a photo.");
+    if (validationErrors.includes("photo_required")) {
+      setStatus(MSG.PHOTO_REQUIRED);
       return;
     }
 
@@ -451,28 +545,44 @@ function initSaveButton() {
     try {
       const r = await createDraftOnServer(item);
       if (r && r.offline && r.queued) {
-        setStatus("Saved offline. Will sync automatically when online.");
+        setStatus(MSG.SAVED_OFFLINE);
       } else {
-        setStatus(`Saved online. FSL: ${r?.name || r}`);
+        setStatus(MSG.SAVED_ONLINE(r?.name || r));
         requestSwSyncQueue();
       }
     } catch (e) {
       console.error("[FSL] final submit error:", e);
       await logClientError("fsl_submit_final_error", e);
-      setStatus(e?.message || "Error while saving.");
+      setStatus(e?.message || MSG.FINAL_ERROR);
     }
   });
 }
 
+
 document.addEventListener("DOMContentLoaded", () => {
   const token = getTokenFromHash();
-  $("tokenStatus").innerText = token ? "OK" : "Missing #t= token";
+  $("tokenStatus").innerText = token
+    ? MSG.TOKEN_STATUS_OK
+    : MSG.TOKEN_STATUS_MISSING;
   $("timeStatus").innerText = new Date().toISOString();
+
+    // NEW: show/hide form based on token
+  const formEl = $("fslForm");
+  const instrEl = $("qrInstruction");
+  if (formEl && instrEl) {
+    if (hasToken) {
+      formEl.style.display = "block";
+      instrEl.style.display = "none";
+    } else {
+      formEl.style.display = "none";
+      instrEl.style.display = "block";
+    }
+  }
 
   initDriverCanonicalId().catch(async (e) => {
     console.error("[FSL] initDriverCanonicalId failed:", e);
     await logClientError("init_driver_canonical_id", e);
-    setStatus(e.message || "Failed to initialise driver profile.");
+    setStatus(e.message || MSG.INIT_FAILED);
   });
 
   if (navigator.onLine) {
@@ -480,11 +590,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   window.addEventListener("online", requestSwSyncQueue);
 
-  // NEW: start listening for SW messages (incl. flush done)
+  // NEW: start listening for SW messages (incl. flush done / session expired)
   initSwMessageListener();
 
-  initPhotoInput();
+  initPhotoInputs();
+  initSafetyToggle();
   initSaveButton();
 
-  setStatus("Ready.");
+  setStatus(MSG.READY);
 });

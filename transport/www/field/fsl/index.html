@@ -1,8 +1,16 @@
+{# /field/fsl/index.html #}
 {% extends "templates/web.html" %}
 
 {% block head %}
   {{ super() }}
   <link rel="stylesheet" href="/field/fsl/fsl.css">
+  <link rel="manifest" href="/field/fsl/manifest.json" />
+  <meta name="theme-color" content="#00897B" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="/field/fsl/icons/icon-192.png" />
 {% endblock %}
 
 {% block page_content %}
@@ -12,48 +20,64 @@
   window.csrf_token = "{{ csrf_token }}";
 </script>
 
-<div class="fsl-page">
+{# ✅ FORM CONTAINER – will be shown only when QR token exists #}
+<div class="fsl-page" id="fslForm">
   <div class="fsl-card">
     <div class="fsl-header">
-      <h2>Field Service Log</h2>
-      <small>Offline-capable driver form</small>
+      <h2>گزارش خدمات میدانی</h2>
+      <small>فرم راننده (قابل استفاده در حالت آفلاین)</small>
     </div>
 
     <!-- QR info -->
     <div class="fsl-row">
       <div class="fsl-meta">
-        <span><b>QR Token:</b> <span id="tokenStatus">Reading…</span></span>
+        <span><b>توکن QR:</b> <span id="tokenStatus">در حال خواندن…</span></span>
       </div>
     </div>
 
-    <!-- Optional driver display (driverCanonicalId or a nicer label via JS) -->
+    <!-- Driver info (driverCanonicalId via JS) -->
     <div class="fsl-row">
       <div class="fsl-meta">
-        <span><b>Driver:</b> <span id="driverDisplay">Loading…</span></span>
+        <span><b>راننده:</b> <span id="driverDisplay">در حال بارگذاری…</span></span>
       </div>
       <div class="fsl-subtle">
-        Driver ID is fetched from your logged-in user; there is no manual input.
+        شناسه راننده به صورت خودکار از حساب کاربری شما دریافت می‌شود.
       </div>
     </div>
 
     <hr />
 
     <!-- Service data -->
-    <div class="fsl-section-title">Service Data</div>
+    <div class="fsl-section-title">اطلاعات خدمت</div>
 
+    <!-- Qty / Weight -->
     <div class="fsl-row">
-      <label class="fsl-label" for="qtyOrWeight">Qty / Weight</label>
+      <label class="fsl-label" for="qtyOrWeight">مقدار / وزن (کیلوگرم)</label>
       <input
         id="qtyOrWeight"
         class="fsl-input"
         type="number"
-        step="0.01"
-        placeholder="Enter quantity or weight"
+        step="0.5"
+        placeholder="مقدار یا وزن را به کیلوگرم وارد کنید"
       />
     </div>
 
+    <!-- Package count -->
     <div class="fsl-row">
-      <label class="fsl-label" for="photoInput">Photo</label>
+      <label class="fsl-label" for="packageCount">تعداد بسته</label>
+      <input
+        id="packageCount"
+        class="fsl-input"
+        type="number"
+        min="0"
+        step="1"
+        placeholder="تعداد بسته‌ها را وارد کنید"
+      />
+    </div>
+
+    <!-- Main waste photo -->
+    <div class="fsl-row">
+      <label class="fsl-label" for="photoInput">عکس از پسماند</label>
       <input
         id="photoInput"
         class="fsl-file"
@@ -61,38 +85,150 @@
         accept="image/*"
         capture="environment"
       />
-      <small id="photoStatus" class="fsl-subtle">No photo selected</small>
+      <small id="photoStatus" class="fsl-subtle">هیچ عکسی انتخاب نشده</small>
+    </div>
+
+    <!-- Is waste safe? -->
+    <div class="fsl-row">
+      <label class="fsl-label" for="isWasteSafe">
+        آیا پسماند ایمن است؟
+      </label>
+      <input
+        id="isWasteSafe"
+        type="checkbox"
+        class="fsl-checkbox"
+        checked
+      />
+    </div>
+
+    <!-- Safety issue block (only when NOT safe) -->
+    <div id="safetySection" class="fsl-section" style="display: none;">
+      <div class="fsl-section-title">مشکل ایمنی</div>
+
+      <!-- Reason -->
+      <div class="fsl-row">
+        <label class="fsl-label" for="safetyIssueReason">
+          دلیل مشکل ایمنی
+        </label>
+        <textarea
+          id="safetyIssueReason"
+          class="fsl-input"
+          rows="2"
+          placeholder="توضیح دهید مشکل ایمنی چیست"
+        ></textarea>
+      </div>
+
+      <!-- Safety issue photo -->
+      <div class="fsl-row">
+        <label class="fsl-label" for="safetyPhotoInput">
+          عکس مشکل ایمنی
+        </label>
+        <input
+          id="safetyPhotoInput"
+          class="fsl-file"
+          type="file"
+          accept="image/*"
+          capture="environment"
+        />
+        <small id="safetyPhotoStatus" class="fsl-subtle">
+          هیچ عکسی انتخاب نشده
+        </small>
+      </div>
+
+      <!-- Is safety issue critical? -->
+      <div class="fsl-row">
+        <label class="fsl-label" for="isSafetyCritical">
+          آیا مشکل ایمنی حاد است؟
+        </label>
+        <input
+          id="isSafetyCritical"
+          type="checkbox"
+          class="fsl-checkbox"
+        />
+      </div>
+
+      <!-- Is safety issue resolved? -->
+      <div class="fsl-row">
+        <label class="fsl-label" for="isSafetyResolved">
+          آیا مشکل رفع شد؟
+        </label>
+        <input
+          id="isSafetyResolved"
+          type="checkbox"
+          class="fsl-checkbox"
+        />
+      </div>
+    </div>
+
+    <!-- Was waste collected? -->
+    <div class="fsl-row">
+      <label class="fsl-label" for="isWasteCollected">
+        آیا پسماند تحویل گرفته شد؟
+      </label>
+      <input
+        id="isWasteCollected"
+        type="checkbox"
+        class="fsl-checkbox"
+      />
     </div>
 
     <hr />
 
     <!-- Device info -->
-    <div class="fsl-section-title">Device Info</div>
+    <div class="fsl-section-title">اطلاعات دستگاه</div>
     <div class="fsl-row">
       <div class="fsl-meta">
-        <span><b>Timestamp:</b> <span id="timeStatus">Not set</span></span>
+        <span><b>زمان:</b> <span id="timeStatus">ثبت نشده</span></span>
       </div>
     </div>
 
     <!-- Actions -->
     <div class="fsl-actions">
       <button id="btnSave" type="button" class="fsl-btn fsl-btn-primary">
-        Save Draft
+        ذخیره پیش‌نویس
       </button>
     </div>
 
     <!-- Status -->
     <div class="fsl-status">
-      <b>Status:</b> <span id="status" class="fsl-status-text"></span>
+      <b>وضعیت:</b> <span id="status" class="fsl-status-text"></span>
     </div>
 
     <div class="fsl-subtle">
-      Submissions are saved offline if network is unavailable and will be
-      re-sent automatically when you are online again.
+      در صورت قطع اینترنت، داده‌ها به صورت آفلاین ذخیره می‌شوند و پس از اتصال
+      به صورت خودکار برای سرور ارسال خواهند شد.
     </div>
   </div>
 </div>
 
+<div class="fsl-page" id="qrInstruction" style="display: none;">
+  <div class="fsl-card">
+    <div class="fsl-header">
+      <h2>اسکن کد QR لازم است</h2>
+      <small>برای باز شدن این فرم باید ابتدا کد QR محل را اسکن کنید.</small>
+    </div>
+
+    <div class="fsl-row">
+      <p class="fsl-subtle">
+        این فرم فقط پس از اسکن کد QR در محل مشتری باز می‌شود.
+        لطفاً با استفاده از دوربین، کد QR را اسکن کرده و دوباره تلاش کنید.
+      </p>
+    </div>
+
+    <div class="fsl-status">
+      <b>وضعیت:</b>
+      <span class="fsl-status-text">
+        توکن QR یافت نشد. دسترسی به این فرم فقط از طریق اسکن کد QR امکان‌پذیر است.
+      </span>
+    </div>
+  </div>
+</div>
+
+
+<script src="/field/fsl/fsl.messages.js"></script>
+<script src="/field/fsl/fsl.request.js"></script>
+<script src="/field/fsl/fsl.queue.js"></script>
+<script src="/field/fsl/fsl.logic.js"></script>
 <script src="/field/fsl/register-sw.js"></script>
 <script src="/field/fsl/fsl.js"></script>
 

@@ -10,14 +10,13 @@ def _b64url_decode(s: str) -> bytes:
     pad = "=" * (-len(s) % 4)
     return base64.urlsafe_b64decode(s + pad)
 
-def sign_customer_token(customer: str, exp: int) -> str:
+def sign_customer_token(customer: str) -> str:
     """
     Creates a QR token. Use it when generating QR codes for customers.
     Output is base64url(JSON payload including signature).
     """
 
-    expires_at = int(time.time() + int(exp))
-    unsigned = {"v": 1, "customer": customer, "exp": int(expires_at)}
+    unsigned = {"v": 1, "customer": customer}
     raw = json.dumps(unsigned, separators=(",", ":"), sort_keys=True).encode()
 
     secret = frappe.conf.get("qr_hmac_secret")
@@ -32,15 +31,26 @@ def sign_customer_token(customer: str, exp: int) -> str:
 
 def verify_customer_token(token: str) -> dict:
     """
-    Verifies token integrity and expiry.
-    Returns {"customer": "<Customer DocName>"} if valid.
+    Verify token integrity (no expiry).
+
+    Returns:
+      {"customer": "<Customer DocName>"}
+    or raises frappe.PermissionError on failure.
     """
+
     secret = frappe.conf.get("qr_hmac_secret")
     if not secret:
         raise RuntimeError("qr_hmac_secret not set in site_config.json")
 
-    payload_json = _b64url_decode(token).decode()
-    payload = json.loads(payload_json)
+    # Decode and parse JSON
+    try:
+        payload_json = _b64url_decode(token).decode()
+        payload = json.loads(payload_json)
+    except Exception as e:
+        frappe.log_error(f"QR decode error: {e}", "QR Verify")
+        raise frappe.PermissionError("Invalid QR token")
+
+    frappe.logger().info(f"[QR] payload_json={payload_json!r}")
 
     # Version check
     if payload.get("v") != 1:
@@ -50,22 +60,23 @@ def verify_customer_token(token: str) -> dict:
     if not customer:
         raise frappe.PermissionError("Missing customer")
 
-    # Expiry check
-    exp = int(payload.get("exp", 0))
-    if exp and time.time() > exp:
-        raise frappe.PermissionError("Token expired")
-
     sig = payload.get("sig")
     if not sig:
         raise frappe.PermissionError("Missing signature")
 
     # Recompute signature from unsigned payload
-    unsigned = {"v": 1, "customer": customer, "exp": exp}
+    unsigned = {"v": 1, "customer": customer}
     raw = json.dumps(unsigned, separators=(",", ":"), sort_keys=True).encode()
     mac = hmac.new(secret.encode(), raw, hashlib.sha256).digest()
+    expected_sig = _b64url(mac)
+
+    frappe.logger().info(
+        f"[QR] customer={customer}, sig_in={sig}, sig_expected={expected_sig}"
+    )
 
     # constant-time compare
-    if not hmac.compare_digest(_b64url(mac), sig):
+    if not hmac.compare_digest(expected_sig, sig):
         raise frappe.PermissionError("Bad signature")
 
     return {"customer": customer}
+

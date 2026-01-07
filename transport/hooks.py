@@ -25,6 +25,11 @@ fixtures = [
     ]]]},
 ]
 
+no_csrf = [
+    "transport.api.fsl.get_csrf_for_fsl",
+]
+
+
 doc_events = {
     "Driver": {
         "before_insert" : "transport.general_hooks.canonical_id.set_canonical_id",

@@ -4,9 +4,17 @@
  * GOAL:
  * - Offline shell for /field/fsl/ (driver page)
  * - Offline trips (GET API)
- * - Offline submit via messages (queue & retry)
+ * - Offline submit via messages (queue & retry on each SYNC)
  * - Redirect navigations to /login if not logged in (when online)
  */
+
+importScripts(
+  "/field/fsl/fsl.request.js",
+  "/field/fsl/fsl.queue.js",
+  "/field/fsl/sw.core.js"
+);
+
+// ----- CONSTANTS -----
 
 const STATIC_CACHE = "fsl-static-v1";
 const TRIPS_CACHE = "fsl-trips-v1";
@@ -17,128 +25,121 @@ const TRIPS_API_PATH = "/api/method/transport.api.get_driver_trips";
 const SUBMIT_API_PATH =
   "/api/method/transport.api.fsl.upsert_draft_fsl";
 
+const CSRF_API_PATH =
+  "/api/method/transport.api.fsl.get_csrf_for_fsl";
+
 const LOGIN_STATUS_API = "/api/method/frappe.auth.get_logged_user";
 const LOGIN_PAGE = "/login";
 
-/* ---------------- IndexedDB helpers ---------------- */
+// Retry / TTL / size policy
+const MAX_RETRIES = 3;
+const MAX_QUEUE_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const MAX_QUEUE_ITEMS = 10;
+const MAX_ITEMS_PER_FLUSH = 10;
 
-function openDB() {
-  return new Promise((resolve, reject) => {
-    try {
-      const req = indexedDB.open(DB_NAME, 1);
+// QueueService instance + core logic
+const queueService = new FslQueueService(DB_NAME, DB_STORE);
+const SwCore = self.FslSwCore;
 
-      req.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        if (!db.objectStoreNames.contains(DB_STORE)) {
-          db.createObjectStore(DB_STORE, {
-            keyPath: "id",
-            autoIncrement: true,
-          });
-        }
-      };
+// ---------------------------------------------------------------------------
+// SMALL HELPERS
+// ---------------------------------------------------------------------------
 
-      req.onsuccess = () => {
-        console.log("[SW][IDB] open success");
-        resolve(req.result);
-      };
-
-      req.onerror = () => {
-        console.error("[SW][IDB] open error:", req.error);
-        reject(req.error || new Error("IDB open error"));
-      };
-    } catch (e) {
-      console.error("[SW][IDB] open exception:", e);
-      reject(e);
-    }
-  });
+async function parseJsonSafe(res, context, errorCode) {
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (e) {
+    console.warn("[SW][FSL] " + context + " JSON parse error", e);
+    throw new Error(errorCode || "JSON_PARSE_ERROR");
+  }
+  return data;
 }
 
-async function queueRequest(record) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    try {
-      const tx = db.transaction(DB_STORE, "readwrite");
-      const store = tx.objectStore(DB_STORE);
-      store.add(record);
-
-      tx.oncomplete = () => {
-        console.log("[SW][IDB] queued record", record);
-        resolve(true);
-      };
-      tx.onerror = () => {
-        console.error("[SW][IDB] tx error:", tx.error);
-        reject(tx.error || new Error("IDB tx error"));
-      };
-      tx.onabort = () => {
-        console.error("[SW][IDB] tx abort:", tx.error);
-        reject(tx.error || new Error("IDB tx abort"));
-      };
-    } catch (e) {
-      console.error("[SW][IDB] queue exception:", e);
-      reject(e);
-    }
+// Get CSRF token for this session
+async function fetchCsrfForFsl() {
+  const res = await fetch(CSRF_API_PATH, {
+    method: "GET",
+    credentials: "include",
   });
+
+  if (res.status === 403) {
+    console.warn("[SW][FSL] CSRF fetch got 403 (not logged in)");
+
+    try {
+      const clients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      clients.forEach((client) => {
+        client.postMessage({ type: "FSL_SESSION_EXPIRED" });
+      });
+    } catch (e) {
+      console.warn("[SW][FSL] failed to notify clients on 403:", e);
+    }
+
+    throw new Error("CSRF_FOR_FSL_FORBIDDEN");
+  }
+
+  if (!res.ok) {
+    console.warn("[SW][FSL] CSRF fetch failed with status", res.status);
+    throw new Error("CSRF_FOR_FSL_FAILED");
+  }
+
+  const data = await parseJsonSafe(
+    res,
+    "CSRF fetch",
+    "CSRF_FOR_FSL_PARSE_ERROR"
+  );
+
+  const token =
+    (data.message && data.message.csrf_token) ||
+    data.csrf_token ||
+    data.message;
+
+  if (!token) {
+    console.warn("[SW][FSL] CSRF token empty in response", data);
+    throw new Error("CSRF_FOR_FSL_EMPTY");
+  }
+
+  return token;
 }
 
-async function getQueuedRequests() {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    try {
-      const tx = db.transaction(DB_STORE, "readonly");
-      const store = tx.objectStore(DB_STORE);
-
-      const all = [];
-      const req = store.openCursor();
-
-      req.onsuccess = (event) => {
-        const cursor = event.target.result;
-        if (cursor) {
-          all.push({ id: cursor.key, ...cursor.value });
-          cursor.continue();
-        } else {
-          console.log("[SW][IDB] loaded queued records:", all.length);
-          resolve(all);
-        }
-      };
-      req.onerror = () => {
-        console.error("[SW][IDB] cursor error:", req.error);
-        reject(req.error || new Error("IDB cursor error"));
-      };
-    } catch (e) {
-      console.error("[SW][IDB] getQueuedRequests exception:", e);
-      reject(e);
+// Notify pages that the queue is fully flushed
+async function notifyClientsQueueFlushed() {
+  try {
+    const clients = await self.clients.matchAll({ type: "window" });
+    for (const client of clients) {
+      client.postMessage({ type: "FSL_QUEUE_FLUSHED" });
     }
-  });
+  } catch (e) {
+    console.warn("[SW] failed to notify clients after flush:", e);
+  }
 }
 
-async function deleteQueuedRequest(id) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    try {
-      const tx = db.transaction(DB_STORE, "readwrite");
-      const store = tx.objectStore(DB_STORE);
-      store.delete(id);
-
-      tx.oncomplete = () => {
-        console.log("[SW][IDB] deleted record", id);
-        resolve(true);
-      };
-      tx.onerror = () => {
-        console.error("[SW][IDB] delete tx error:", tx.error);
-        reject(tx.error || new Error("IDB delete tx error"));
-      };
-      tx.onabort = () => {
-        console.error("[SW][IDB] delete tx abort:", tx.error);
-        reject(tx.error || new Error("IDB delete tx abort"));
-      };
-    } catch (e) {
-      console.error("[SW][IDB] delete exception:", e);
-      reject(e);
-    }
-  });
+// Log sync metrics to backend
+async function logSyncResult(csrf, metrics) {
+  try {
+    await fetch(
+      "/api/method/transport.api.fsl.log_sync_result",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Frappe-CSRF-Token": csrf,
+        },
+        body: JSON.stringify(metrics),
+      }
+    );
+  } catch (e) {
+    console.warn("[SW][FSL] failed to log sync result:", e);
+  }
 }
 
-/* ---------------- INSTALL ---------------- */
+// ---------------------------------------------------------------------------
+// INSTALL
+// ---------------------------------------------------------------------------
 
 self.addEventListener("install", (event) => {
   console.log("[SW] install");
@@ -149,14 +150,19 @@ self.addEventListener("install", (event) => {
         "/field/fsl/",
         "/field/fsl/fsl.js",
         "/field/fsl/register-sw.js",
-        // add CSS, logos, etc if needed
+        "/field/fsl/fsl.messages.js",
+        "/field/fsl/fsl.request.js",
+        "/field/fsl/fsl.queue.js",
+        "/field/fsl/sw.core.js",
       ]);
       self.skipWaiting();
     })()
   );
 });
 
-/* ---------------- ACTIVATE ---------------- */
+// ---------------------------------------------------------------------------
+// ACTIVATE
+// ---------------------------------------------------------------------------
 
 self.addEventListener("activate", (event) => {
   console.log("[SW] activate");
@@ -174,28 +180,30 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-/* ---------------- FETCH ---------------- */
+// ---------------------------------------------------------------------------
+// FETCH
+// ---------------------------------------------------------------------------
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Trips API cache
   if (req.method === "GET" && url.pathname === TRIPS_API_PATH) {
     event.respondWith(handleTripsRequest(req));
     return;
   }
 
-  // Static stuff under /field/fsl/
   if (req.method === "GET" && url.pathname.startsWith("/field/fsl/")) {
     event.respondWith(handleStaticRequest(req));
     return;
   }
 
-  // All other requests (including /api POSTs) go straight to network.
+  // All other requests → default network handling
 });
 
-/* ---------------- STATIC (HTML / JS / etc) ---------------- */
+// ---------------------------------------------------------------------------
+// STATIC (HTML / JS / etc)
+// ---------------------------------------------------------------------------
 
 async function handleStaticRequest(req) {
   const url = new URL(req.url);
@@ -214,8 +222,8 @@ async function handleStaticRequest(req) {
           );
         }
       }
-    } catch (e) {
-      // probably offline
+    } catch {
+      // offline → fall through to cached shell
     }
   }
 
@@ -238,7 +246,9 @@ async function handleStaticRequest(req) {
   }
 }
 
-/* ---------------- TRIPS API ---------------- */
+// ---------------------------------------------------------------------------
+// TRIPS API
+// ---------------------------------------------------------------------------
 
 async function handleTripsRequest(req) {
   try {
@@ -255,7 +265,7 @@ async function handleTripsRequest(req) {
     return new Response(
       JSON.stringify({
         error: "offline",
-        message: "No cached trips available",
+        message: "هیچ سفر ذخیره‌شده‌ای در دسترس نیست.",
       }),
       {
         status: 503,
@@ -265,52 +275,67 @@ async function handleTripsRequest(req) {
   }
 }
 
-/* ---------------- FLUSH QUEUE ---------------- */
+// ---------------------------------------------------------------------------
+// FLUSH QUEUE – use SwCore.flushQueueCore
+// ---------------------------------------------------------------------------
 
 async function flushQueue() {
   console.log("[SW] flushQueue called");
-  const queued = await getQueuedRequests();
 
-  for (const item of queued) {
-    const { id, headers, body } = item;
-    try {
+  const all = await queueService.getAll();
+  if (!all.length) {
+    await notifyClientsQueueFlushed();
+    return;
+  }
+
+  let csrf;
+  try {
+    csrf = await fetchCsrfForFsl();
+  } catch (e) {
+    if (e && e.message === "CSRF_FOR_FSL_FORBIDDEN") {
+      console.warn("[SW][FSL] Stopping flush: session not logged in");
+      return;
+    }
+    console.warn("[SW][FSL] Cannot get CSRF, keeping items queued:", e);
+    return;
+  }
+
+  await SwCore.flushQueueCore({
+    queueService,
+    sendFn: async (payloadObj) => {
       const res = await fetch(SUBMIT_API_PATH, {
         method: "POST",
-        headers,
-        body,
-        // NOTE: this is exactly the same semantics as before +
-        // credentials: "include" if you want it; if you *know* your
-        // endpoint is csrf_exempt, you can drop CSRF entirely.
         credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Frappe-CSRF-Token": csrf,
+        },
+        body: JSON.stringify(payloadObj),
       });
-
-      if (res && res.ok) {
-        console.log("[SW] flushed record", id);
-        await deleteQueuedRequest(id);
-      } else {
-        console.warn(
-          "[SW] queued request failed with status:",
-          res && res.status
-        );
-      }
-    } catch (err) {
-      console.warn("[SW] queued request failed (network)", err);
-      // still offline; keep in DB
-    }
-  }
-
-  // NEW: tell any open /field/fsl/ page that flush is done
-  try {
-    const clients = await self.clients.matchAll({ type: "window" });
-    for (const client of clients) {
-      client.postMessage({ type: "FSL_QUEUE_FLUSHED" });
-    }
-  } catch (e) {
-    console.warn("[SW] failed to notify clients after flush:", e);
-  }
+      return { ok: !!(res && res.ok), status: res ? res.status : 0 };
+    },
+    nowMs: Date.now(),
+    maxAgeMs: MAX_QUEUE_AGE_MS,
+    maxRetries: MAX_RETRIES,
+    maxItemsPerFlush: MAX_ITEMS_PER_FLUSH,
+    maxQueueItems: MAX_QUEUE_ITEMS,
+    logger: {
+      async logSync(metrics) {
+        await logSyncResult(csrf, metrics);
+        if (metrics.queued_after === 0) {
+          await notifyClientsQueueFlushed();
+        }
+      },
+      logDrop(item, reason) {
+        console.warn("[SW] dropping item", item.id, "reason:", reason);
+      },
+    },
+  });
 }
 
-/* ---------------- MESSAGES FROM PAGE ---------------- */
+// ---------------------------------------------------------------------------
+// MESSAGES FROM PAGE
+// ---------------------------------------------------------------------------
 
 self.addEventListener("message", (event) => {
   const data = event.data;
@@ -319,16 +344,24 @@ self.addEventListener("message", (event) => {
   console.log("[SW] message received:", data.type);
 
   if (data.type === "QUEUE_FSL") {
-    const headers = data.headers || {};
     const payloadObj = data.payload || {};
+    const body = JSON.stringify(payloadObj);
+    const now = Date.now();
 
-    const record = {
-      headers,
-      body: JSON.stringify(payloadObj),
-      timestamp: Date.now(),
-    };
+    const request = new FslRequest({
+      url: SUBMIT_API_PATH,
+      method: "POST",
+      body,
+      created_at: now,
+      retry_count: 0,
+    });
 
-    event.waitUntil(queueRequest(record));
+    event.waitUntil(
+      (async () => {
+        await queueService.enqueue(request);
+        await queueService.trimToMax(MAX_QUEUE_ITEMS);
+      })()
+    );
   }
 
   if (data.type === "SYNC_QUEUE") {

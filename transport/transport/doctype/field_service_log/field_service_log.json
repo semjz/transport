@@ -10,15 +10,22 @@
   "site",
   "address",
   "site_uuid",
+  "driver",
+  "qr_token",
   "qty_or_weight",
+  "package_count",
   "photo",
+  "is_waste_safe",
+  "safety_issue_reason",
+  "safety_issue_photo",
+  "is_safety_critical",
+  "is_safety_resolved",
+  "is_waste_collected",
   "trip_date",
   "gps_lat",
   "gps_lng",
-  "driver",
-  "client_request_id",
   "status",
-  "qr_token"
+  "performed_at"
  ],
  "fields": [
   {
@@ -53,12 +60,13 @@
   {
    "fieldname": "qty_or_weight",
    "fieldtype": "Float",
-   "label": "Qty/Weight"
+   "label": "Qty/Weight",
+   "reqd": 1
   },
   {
    "fieldname": "photo",
    "fieldtype": "Attach Image",
-   "label": "Photo"
+   "label": " Waste Photo"
   },
   {
    "fieldname": "gps_lat",
@@ -77,13 +85,6 @@
    "label": "Driver",
    "options": "Driver",
    "reqd": 1
-  },
-  {
-   "fieldname": "client_request_id",
-   "fieldtype": "Data",
-   "hidden": 1,
-   "label": "Client Request Id",
-   "unique": 1
   },
   {
    "fieldname": "status",
@@ -111,12 +112,63 @@
    "fieldtype": "Date",
    "label": "Trip Date",
    "set_only_once": 1
+  },
+  {
+   "fieldname": "package_count",
+   "fieldtype": "Int",
+   "label": "Package Count",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_waste_safe",
+   "fieldtype": "Check",
+   "label": "Is waste Safe",
+   "reqd": 1
+  },
+  {
+   "depends_on": "!doc.is_waste_safe",
+   "fieldname": "safety_issue_reason",
+   "fieldtype": "Small Text",
+   "label": "Safety Issue Reason"
+  },
+  {
+   "depends_on": "!doc.is_waste_safe",
+   "fieldname": "safety_issue_photo",
+   "fieldtype": "Attach Image",
+   "label": "Safety Issue Photo"
+  },
+  {
+   "default": "0",
+   "depends_on": "!doc.is_waste_safe",
+   "fieldname": "is_safety_critical",
+   "fieldtype": "Check",
+   "label": "Is Safety Critical"
+  },
+  {
+   "default": "0",
+   "depends_on": "!doc.is_waste_safe",
+   "fieldname": "is_safety_resolved",
+   "fieldtype": "Check",
+   "label": "Is Safety Resolved"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_waste_collected",
+   "fieldtype": "Check",
+   "label": "Is Waste Collected"
+  },
+  {
+   "fieldname": "performed_at",
+   "fieldtype": "Datetime",
+   "label": "Performed At",
+   "reqd": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-04 14:25:37.921416",
+ "modified": "2026-01-06 15:06:40.188805",
  "modified_by": "Administrator",
  "module": "Transport",
  "name": "Field Service Log",
