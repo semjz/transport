@@ -17,10 +17,10 @@ def create_employee_for_driver(doc, method=None):
         "doctype": "Employee",
         "employee_name": doc.full_name,
         "status": "Active",
-        "company": doc.company,
+        "company": doc.custom_company,
         "custom_sepidar_code": doc.custom_sepidar_code,
         "custom_territory": doc.custom_territory,
-        "cell_number": doc.mobile_no,
+        "cell_number": doc.cell_number,
     }
 
     # Reuse existing user if Driver already has one

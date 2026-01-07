@@ -5,10 +5,10 @@ USER_FIELD = "custom_user_id"
 def create_user_for_driver(doc, method=None):
     """Run on Driver.after_insert: create User + Company permission."""
 
-    if not doc.mobile_no:
+    if not doc.cell_number:
         return
 
-    mobile_clean = doc.mobile_no.strip().replace(" ", "")
+    mobile_clean = doc.cell_number.strip().replace(" ", "")
 
     user = frappe.get_doc({
         "doctype": "User",
@@ -36,17 +36,17 @@ def create_user_for_driver(doc, method=None):
         doc.db_set(USER_FIELD, user_name)
 
     # Company permission (same as your employee hook)
-    if doc.company:
+    if doc.custom_company:
         if not frappe.db.exists("User Permission", {
             "user": user_name,
             "allow": "Company",
-            "for_value": doc.company,
+            "for_value": doc.custom_company,
         }):
             perm = frappe.get_doc({
                 "doctype": "User Permission",
                 "user": user_name,
                 "allow": "Company",
-                "for_value": doc.company,
+                "for_value": doc.custom_company,
                 "apply_to_all_doctypes": 1
             })
             perm.flags.ignore_permissions = True
