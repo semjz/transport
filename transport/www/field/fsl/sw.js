@@ -22,11 +22,9 @@ const DB_NAME = "fsl_offline_db";
 const DB_STORE = "request-queue";
 
 const TRIPS_API_PATH = "/api/method/transport.api.get_driver_trips";
-const SUBMIT_API_PATH =
-  "/api/method/transport.api.fsl.upsert_draft_fsl";
+const SUBMIT_API_PATH = "/api/method/transport.api.fsl.upsert_draft_fsl";
 
-const CSRF_API_PATH =
-  "/api/method/transport.api.fsl.get_csrf_for_fsl";
+const CSRF_API_PATH = "/api/method/transport.api.fsl.get_csrf_for_fsl";
 
 const LOGIN_STATUS_API = "/api/method/frappe.auth.get_logged_user";
 const LOGIN_PAGE = "/login";
@@ -37,7 +35,12 @@ const MAX_QUEUE_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const MAX_QUEUE_ITEMS = 10;
 const MAX_ITEMS_PER_FLUSH = 10;
 
-// QueueService instance + core logic
+// IMPORTANT:
+// In production, https://smartwm.ir/field/fsl/ redirects to http://smartwm.ir:8080/field/fsl (mixed content).
+// So we MUST NOT precache "/field/fsl/".
+// Use "/field/fsl" (no trailing slash) as the offline shell URL.
+const SHELL_URL = "/field/fsl";
+
 const queueService = new FslQueueService(DB_NAME, DB_STORE);
 const SwCore = self.FslSwCore;
 
@@ -56,7 +59,6 @@ async function parseJsonSafe(res, context, errorCode) {
   return data;
 }
 
-// Get CSRF token for this session
 async function fetchCsrfForFsl() {
   const res = await fetch(CSRF_API_PATH, {
     method: "GET",
@@ -86,16 +88,10 @@ async function fetchCsrfForFsl() {
     throw new Error("CSRF_FOR_FSL_FAILED");
   }
 
-  const data = await parseJsonSafe(
-    res,
-    "CSRF fetch",
-    "CSRF_FOR_FSL_PARSE_ERROR"
-  );
+  const data = await parseJsonSafe(res, "CSRF fetch", "CSRF_FOR_FSL_PARSE_ERROR");
 
   const token =
-    (data.message && data.message.csrf_token) ||
-    data.csrf_token ||
-    data.message;
+    (data.message && data.message.csrf_token) || data.csrf_token || data.message;
 
   if (!token) {
     console.warn("[SW][FSL] CSRF token empty in response", data);
@@ -105,7 +101,6 @@ async function fetchCsrfForFsl() {
   return token;
 }
 
-// Notify pages that the queue is fully flushed
 async function notifyClientsQueueFlushed() {
   try {
     const clients = await self.clients.matchAll({ type: "window" });
@@ -117,21 +112,17 @@ async function notifyClientsQueueFlushed() {
   }
 }
 
-// Log sync metrics to backend
 async function logSyncResult(csrf, metrics) {
   try {
-    await fetch(
-      "/api/method/transport.api.fsl.log_sync_result",
-      {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Frappe-CSRF-Token": csrf,
-        },
-        body: JSON.stringify(metrics),
-      }
-    );
+    await fetch("/api/method/transport.api.fsl.log_sync_result", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Frappe-CSRF-Token": csrf,
+      },
+      body: JSON.stringify(metrics),
+    });
   } catch (e) {
     console.warn("[SW][FSL] failed to log sync result:", e);
   }
@@ -143,18 +134,28 @@ async function logSyncResult(csrf, metrics) {
 
 self.addEventListener("install", (event) => {
   console.log("[SW] install");
+
   event.waitUntil(
     (async () => {
       const cache = await caches.open(STATIC_CACHE);
+
+      // DO NOT add "/field/fsl/" here (it redirects to http://:8080 in prod).
+      // Use SHELL_URL instead.
       await cache.addAll([
-        "/field/fsl/",
+        SHELL_URL,
+        "/field/fsl/fsl.css",
         "/field/fsl/fsl.js",
         "/field/fsl/register-sw.js",
         "/field/fsl/fsl.messages.js",
         "/field/fsl/fsl.request.js",
         "/field/fsl/fsl.queue.js",
         "/field/fsl/sw.core.js",
+        "/field/fsl/manifest.json",
+        // icons if you use them:
+        // "/field/fsl/icons/icon-192.png",
+        // "/field/fsl/icons/icon-512.png",
       ]);
+
       self.skipWaiting();
     })()
   );
@@ -193,12 +194,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (req.method === "GET" && url.pathname.startsWith("/field/fsl/")) {
+  if (req.method === "GET" && url.pathname.startsWith("/field/fsl")) {
     event.respondWith(handleStaticRequest(req));
     return;
   }
 
-  // All other requests → default network handling
+  // other requests: default network
 });
 
 // ---------------------------------------------------------------------------
@@ -208,7 +209,8 @@ self.addEventListener("fetch", (event) => {
 async function handleStaticRequest(req) {
   const url = new URL(req.url);
 
-  if (req.mode === "navigate" && url.pathname.startsWith("/field/fsl/")) {
+  // Online navigation -> login check (keep as-is)
+  if (req.mode === "navigate" && url.pathname.startsWith("/field/fsl")) {
     try {
       const authRes = await fetch(LOGIN_STATUS_API, { method: "GET" });
       if (authRes.ok) {
@@ -223,7 +225,7 @@ async function handleStaticRequest(req) {
         }
       }
     } catch {
-      // offline → fall through to cached shell
+      // offline -> continue to cache
     }
   }
 
@@ -238,9 +240,14 @@ async function handleStaticRequest(req) {
     }
     return res;
   } catch (err) {
+    // Offline navigation fallback: return cached shell.
     if (req.mode === "navigate") {
-      const shell = await caches.match("/field/fsl/");
-      if (shell) return shell;
+      const shell1 = await caches.match(SHELL_URL);
+      if (shell1) return shell1;
+
+      // extra fallback (in case you cached with slash somewhere)
+      const shell2 = await caches.match("/field/fsl/");
+      if (shell2) return shell2;
     }
     throw err;
   }
@@ -267,10 +274,7 @@ async function handleTripsRequest(req) {
         error: "offline",
         message: "هیچ سفر ذخیره‌شده‌ای در دسترس نیست.",
       }),
-      {
-        status: 503,
-        headers: { "Content-Type": "application/json" },
-      }
+      { status: 503, headers: { "Content-Type": "application/json" } }
     );
   }
 }

@@ -9,6 +9,13 @@ app_license = "mit"
 required_apps = ["erpnext", "foundation"]
 
 fixtures = [
+    {
+        "dt": "Custom Field",
+        "filters": [
+            ["dt", "in", ["Driver", "Field Service Log", "User"]]  # add what you need
+        ],
+    },
+
     # Transport roles (domain-specific)
     {"dt": "Role", "filters": [["name", "in", [
         "Driver"

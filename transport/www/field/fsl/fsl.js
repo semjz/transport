@@ -570,7 +570,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const formEl = $("fslForm");
   const instrEl = $("qrInstruction");
   if (formEl && instrEl) {
-    if (hasToken) {
+    if (token) {
       formEl.style.display = "block";
       instrEl.style.display = "none";
     } else {

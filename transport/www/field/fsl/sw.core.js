@@ -13,11 +13,11 @@ function createdAtToMs(created_at) {
 /**
  * Decide if an item should be dropped based on age or retry_count.
  *
- * @param {Object} item - queued request, with created_at and retry_count
- * @param {number} nowMs - current time in ms
- * @param {number} maxAgeMs - maximum allowed age in ms
- * @param {number} maxRetries - maximum allowed retry_count
- * @returns {{drop: boolean, reason: string|null, ageMs: number, retryCount: number}}
+ *  item - queued request, with created_at and retry_count
+ *  nowMs - current time in ms
+ *  maxAgeMs - maximum allowed age in ms
+ *  maxRetries - maximum allowed retry_count
+ * returns {{drop: boolean, reason: string|null, ageMs: number, retryCount: number}}
  */
 function shouldDropItem(item, nowMs, maxAgeMs, maxRetries) {
   const createdMs = createdAtToMs(item.created_at);
